@@ -103,7 +103,6 @@ Resources:
             Action: sts:AssumeRole
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
-        - arn:aws:iam::aws:policy/AWSAppRunnerServicePolicyForECRAccess
         - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
       Tags:
         - Key: Name
@@ -121,9 +120,7 @@ Resources:
   EC2Instance:
     Type: AWS::EC2::Instance
     Properties:
-      ImageId: !Sub
-        - ami-${AmiId}
-        - AmiId: !FindInMap [RegionMap, !Ref AWS::Region, AMI]
+      ImageId: !FindInMap [RegionMap, !Ref AWS::Region, AMI]
       InstanceType: !Ref InstanceType
       SubnetId: !Ref PrivateSubnet
       SecurityGroupIds:
@@ -149,19 +146,14 @@ Resources:
 Mappings:
   RegionMap:
     il-central-1:
-      # Amazon Linux 2023 kernel 6.1 AMI
-      # Find AMI: aws ec2 describe-images --owners amazon --filters "Name=name,Values=al2023-ami-*-kernel-6.1-x86_64" --query 'Images | sort_by(@, &CreationDate) | [-1].ImageId' --region il-central-1
-      AMI: ami-0c55b159cbfafe1f0
+      # Amazon Linux 2023 kernel 6.1 AMI (64-bit x86, UEFI-preferred)
+      AMI: ami-0e233d6c0a45f64ec
     eu-central-1:
-      # Amazon Linux 2023 kernel 6.1 AMI
-      # Find AMI: aws ec2 describe-images --owners amazon --filters "Name=name,Values=al2023-ami-*-kernel-6.1-x86_64" --query 'Images | sort_by(@, &CreationDate) | [-1].ImageId' --region eu-central-1
-      AMI: ami-0c55b159cbfafe1f0
+      # Amazon Linux 2023 kernel 6.1 AMI (64-bit x86, UEFI-preferred) - Frankfurt
+      AMI: ami-0387413ed05eb20af
     us-east-1:
-      # Amazon Linux 2023 kernel 6.1 AMI
-      AMI: ami-0c55b159cbfafe1f0
-    us-west-2:
-      # Amazon Linux 2023 kernel 6.1 AMI
-      AMI: ami-0c55b159cbfafe1f0
+      # Amazon Linux 2023 kernel 6.1 AMI (64-bit x86, UEFI-preferred)
+      AMI: ami-07ff62358b87c7116
 
 Outputs:
   PrivateSubnetId:
