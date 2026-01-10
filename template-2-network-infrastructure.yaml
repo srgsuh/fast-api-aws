@@ -45,8 +45,8 @@ Parameters:
   
   PublicSubnetCIDR:
     Type: String
-    Default: 172.31.17.0/24
-    Description: CIDR block for the public subnet (must be within 172.31.0.0/20 range and not overlap with existing subnets)
+    Default: 172.31.62.0/24
+    Description: CIDR block for the public subnet (must be within 172.31.0.0/16 range and not overlap with existing subnets)
   
   CognitoUserPoolId:
     Type: String
@@ -57,7 +57,7 @@ Parameters:
     Description: Existing Cognito App Client ID
 
 Resources:
-  # Public Subnet for NAT Gateway (created in same VPC within 172.31.0.0/20 range)
+  # Public Subnet for NAT Gateway (created in same VPC within 172.31.0.0/16 range)
   PublicSubnet:
     Type: AWS::EC2::Subnet
     Properties:

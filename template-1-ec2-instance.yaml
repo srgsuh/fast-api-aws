@@ -14,19 +14,20 @@ Parameters:
   
   PrivateSubnetCIDR:
     Type: String
-    Default: 172.31.16.0/24
-    Description: CIDR block for the private subnet (must be within 172.31.0.0/20 range and not overlap with existing subnets)
+    Default: 172.31.61.0/24
+    Description: CIDR block for the private subnet (must be within 172.31.0.0/16 range and not overlap with existing subnets)
   
   InstanceType:
     Type: String
-    Default: t2.small
+    Default: t3.small
     AllowedValues:
-      - t2.micro
-      - t2.small
-      - t2.medium
       - t3.micro
+      - t3.nano
       - t3.small
       - t3.medium
+      - t3.large
+      - t3.xlarge
+      - t3.2xlarge
     Description: EC2 instance type
   
   InstancePort:
@@ -35,7 +36,7 @@ Parameters:
     Description: Port on which the instance will listen (HTTP)
 
 Resources:
-  # Private Subnet (created in same VPC as existing subnet within 172.31.0.0/20 range)
+  # Private Subnet (created in same VPC as existing subnet within 172.31.0.0/16 range)
   PrivateSubnet:
     Type: AWS::EC2::Subnet
     Properties:
