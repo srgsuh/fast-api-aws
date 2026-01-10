@@ -38,10 +38,15 @@ Parameters:
     Default: 8000
     Description: Port on which the EC2 instance listens (HTTP)
   
+  AvailabilityZone:
+    Type: AWS::EC2::AvailabilityZone::Name
+    Default: il-central-1c
+    Description: Availability Zone for the public subnet (should match private subnet AZ from Template 1)
+  
   PublicSubnetCIDR:
     Type: String
-    Default: 172.31.59.0/24
-    Description: CIDR block for the public subnet (for NAT Gateway)
+    Default: 172.31.17.0/24
+    Description: CIDR block for the public subnet (must be within 172.31.0.0/20 range and not overlap with existing subnets)
   
   CognitoUserPoolId:
     Type: String
@@ -52,13 +57,13 @@ Parameters:
     Description: Existing Cognito App Client ID
 
 Resources:
-  # Public Subnet for NAT Gateway
+  # Public Subnet for NAT Gateway (created in same VPC within 172.31.0.0/20 range)
   PublicSubnet:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId: !Ref VPCId
       CidrBlock: !Ref PublicSubnetCIDR
-      AvailabilityZone: !Select [0, !GetAZs '']
+      AvailabilityZone: !Ref AvailabilityZone
       MapPublicIpOnLaunch: true
       Tags:
         - Key: Name
