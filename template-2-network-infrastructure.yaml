@@ -50,12 +50,6 @@ Parameters:
   CognitoAppClientId:
     Type: String
     Description: Existing Cognito App Client ID
-  
-  DomainName:
-    Type: String
-    Default: ''
-    Description: Optional custom domain name for API Gateway
-    AllowedPattern: '^$|^[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?)*$'
 
 Resources:
   # Public Subnet for NAT Gateway
@@ -219,9 +213,6 @@ Resources:
         - !Ref PrivateSubnetId
       SecurityGroupIds:
         - !Ref NLBSecurityGroup
-      Tags:
-        - Key: Name
-          Value: !Sub 'vpc-link-${AWS::StackName}'
 
   # API Gateway HTTP API
   ApiGateway:
@@ -239,9 +230,6 @@ Resources:
         AllowHeaders:
           - '*'
         MaxAge: 300
-      Tags:
-        - Key: Name
-          Value: !Sub 'api-gw-${AWS::StackName}'
 
   # API Gateway Stage
   ApiGatewayStage:
@@ -270,6 +258,7 @@ Resources:
   CognitoAuthorizer:
     Type: AWS::ApiGatewayV2::Authorizer
     Properties:
+      Name: !Sub 'auth-${AWS::StackName}-cognito'
       ApiId: !Ref ApiGateway
       AuthorizerType: JWT
       IdentitySource:
@@ -279,24 +268,8 @@ Resources:
           - !Ref CognitoAppClientId
         Issuer: !Sub 'https://cognito-idp.${AWSRegion}.amazonaws.com/${CognitoUserPoolId}'
 
-  # Route: GET /health
-  HealthRouteWithAuth:
-    Type: AWS::ApiGatewayV2::Route
-    DependsOn:
-      - CognitoAuthorizer
-      - ApiGatewayIntegration
-    Properties:
-      ApiId: !Ref ApiGateway
-      RouteKey: 'GET /health'
-      Target: !Sub 'integrations/${ApiGatewayIntegration}'
-      AuthorizationType: JWT
-      AuthorizerId: !Ref CognitoAuthorizer
-
   InfoRouteWithAuth:
     Type: AWS::ApiGatewayV2::Route
-    DependsOn:
-      - CognitoAuthorizer
-      - ApiGatewayIntegration
     Properties:
       ApiId: !Ref ApiGateway
       RouteKey: 'GET /info'
@@ -306,9 +279,6 @@ Resources:
 
   WeatherRouteWithAuth:
     Type: AWS::ApiGatewayV2::Route
-    DependsOn:
-      - CognitoAuthorizer
-      - ApiGatewayIntegration
     Properties:
       ApiId: !Ref ApiGateway
       RouteKey: 'GET /weather'
@@ -318,9 +288,6 @@ Resources:
 
   CurrencyRouteWithAuth:
     Type: AWS::ApiGatewayV2::Route
-    DependsOn:
-      - CognitoAuthorizer
-      - ApiGatewayIntegration
     Properties:
       ApiId: !Ref ApiGateway
       RouteKey: 'GET /currency'
@@ -330,9 +297,6 @@ Resources:
 
   MirrorRouteWithAuth:
     Type: AWS::ApiGatewayV2::Route
-    DependsOn:
-      - CognitoAuthorizer
-      - ApiGatewayIntegration
     Properties:
       ApiId: !Ref ApiGateway
       RouteKey: 'POST /mirror'
