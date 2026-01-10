@@ -1,0 +1,201 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CloudFormation template for EC2 instance in private subnet with SSM access and ECR permissions'
+
+Parameters:
+  AWSRegion:
+    Type: String
+    Default: il-central-1
+    Description: AWS Region for resources
+  
+  VPCId:
+    Type: AWS::EC2::VPC::Id
+    Default: vpc-01eb545134560739e
+    Description: VPC ID where resources will be created
+  
+  PrivateSubnetCIDR:
+    Type: String
+    Default: 172.31.58.0/24
+    Description: CIDR block for the private subnet
+  
+  InstanceType:
+    Type: String
+    Default: t2.small
+    AllowedValues:
+      - t2.micro
+      - t2.small
+      - t2.medium
+      - t3.micro
+      - t3.small
+      - t3.medium
+    Description: EC2 instance type
+  
+  InstancePort:
+    Type: Number
+    Default: 8000
+    Description: Port on which the instance will listen (HTTP)
+
+Resources:
+  # Private Subnet
+  PrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPCId
+      CidrBlock: !Ref PrivateSubnetCIDR
+      AvailabilityZone: !Select [0, !GetAZs '']
+      Tags:
+        - Key: Name
+          Value: !Sub 'sub-${AWS::StackName}-private'
+
+  # Route Table for Private Subnet (local routes only - NAT Gateway route added in Template 2)
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPCId
+      Tags:
+        - Key: Name
+          Value: !Sub 'rt-${AWS::StackName}-private'
+
+  # Associate Private Subnet with Route Table
+  PrivateSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PrivateSubnet
+      RouteTableId: !Ref PrivateRouteTable
+
+  # Security Group for EC2 Instance
+  # Note: SSH (port 22) is explicitly NOT allowed - access via SSM Session Manager only
+  EC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub 'sgr-${AWS::StackName}-ec2'
+      GroupDescription: Security group for EC2 instance in private subnet - SSH disabled, SSM access only
+      VpcId: !Ref VPCId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: !Ref InstancePort
+          ToPort: !Ref InstancePort
+          CidrIp: 172.31.0.0/16
+          Description: Allow HTTP traffic from VPC
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: Allow HTTPS for ECR and SSM
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic
+      Tags:
+        - Key: Name
+          Value: !Sub 'sgr-${AWS::StackName}-ec2'
+
+  # IAM Role for EC2 Instance
+  EC2InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub 'role-${AWS::StackName}-ec2'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/AWSAppRunnerServicePolicyForECRAccess
+        - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+      Tags:
+        - Key: Name
+          Value: !Sub 'role-${AWS::StackName}-ec2'
+
+  # Instance Profile for EC2
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub 'prof-${AWS::StackName}-ec2'
+      Roles:
+        - !Ref EC2InstanceRole
+
+  # EC2 Instance
+  EC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Sub
+        - ami-${AmiId}
+        - AmiId: !FindInMap [RegionMap, !Ref AWS::Region, AMI]
+      InstanceType: !Ref InstanceType
+      SubnetId: !Ref PrivateSubnet
+      SecurityGroupIds:
+        - !Ref EC2SecurityGroup
+      IamInstanceProfile: !Ref EC2InstanceProfile
+      # No KeyName specified - proceeds without a key pair
+      Tags:
+        - Key: Name
+          Value: !Sub 'ec2-${AWS::StackName}-app'
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          yum update -y
+          yum install -y docker
+          systemctl start docker
+          systemctl enable docker
+          # Add ec2-user and ssm-user to docker group for Docker access
+          usermod -a -G docker ec2-user
+          usermod -a -G docker ssm-user
+          # Note: Container deployment should be handled separately
+          # or via Systems Manager Run Command
+
+Mappings:
+  RegionMap:
+    il-central-1:
+      # Amazon Linux 2023 kernel 6.1 AMI
+      # Find AMI: aws ec2 describe-images --owners amazon --filters "Name=name,Values=al2023-ami-*-kernel-6.1-x86_64" --query 'Images | sort_by(@, &CreationDate) | [-1].ImageId' --region il-central-1
+      AMI: ami-0c55b159cbfafe1f0
+    eu-central-1:
+      # Amazon Linux 2023 kernel 6.1 AMI
+      # Find AMI: aws ec2 describe-images --owners amazon --filters "Name=name,Values=al2023-ami-*-kernel-6.1-x86_64" --query 'Images | sort_by(@, &CreationDate) | [-1].ImageId' --region eu-central-1
+      AMI: ami-0c55b159cbfafe1f0
+    us-east-1:
+      # Amazon Linux 2023 kernel 6.1 AMI
+      AMI: ami-0c55b159cbfafe1f0
+    us-west-2:
+      # Amazon Linux 2023 kernel 6.1 AMI
+      AMI: ami-0c55b159cbfafe1f0
+
+Outputs:
+  PrivateSubnetId:
+    Description: ID of the private subnet
+    Value: !Ref PrivateSubnet
+    Export:
+      Name: !Sub '${AWS::StackName}-PrivateSubnetId'
+  
+  EC2InstanceId:
+    Description: ID of the EC2 instance
+    Value: !Ref EC2Instance
+    Export:
+      Name: !Sub '${AWS::StackName}-EC2InstanceId'
+  
+  EC2InstancePrivateIP:
+    Description: Private IP address of the EC2 instance
+    Value: !GetAtt EC2Instance.PrivateIp
+    Export:
+      Name: !Sub '${AWS::StackName}-EC2InstancePrivateIP'
+  
+  EC2SecurityGroupId:
+    Description: Security Group ID for the EC2 instance
+    Value: !Ref EC2SecurityGroup
+    Export:
+      Name: !Sub '${AWS::StackName}-EC2SecurityGroupId'
+  
+  EC2InstanceRoleArn:
+    Description: ARN of the IAM role for the EC2 instance
+    Value: !GetAtt EC2InstanceRole.Arn
+    Export:
+      Name: !Sub '${AWS::StackName}-EC2InstanceRoleArn'
+  
+  PrivateRouteTableId:
+    Description: Route Table ID for the private subnet
+    Value: !Ref PrivateRouteTable
+    Export:
+      Name: !Sub '${AWS::StackName}-PrivateRouteTableId'

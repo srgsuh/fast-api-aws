@@ -1,0 +1,402 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'CloudFormation template for network infrastructure - NAT Gateway, NLB, API Gateway, VPC Link, and Cognito integration'
+
+Parameters:
+  AWSRegion:
+    Type: String
+    Default: il-central-1
+    Description: AWS Region for resources
+  
+  VPCId:
+    Type: AWS::EC2::VPC::Id
+    Default: vpc-01eb545134560739e
+    Description: VPC ID where resources will be created
+  
+  InternetGatewayId:
+    Type: String
+    Default: igw-02e8244f3df25dcc9
+    Description: Existing Internet Gateway ID
+  
+  PrivateSubnetId:
+    Type: String
+    Description: Private Subnet ID from Template 1 (imported)
+  
+  PrivateRouteTableId:
+    Type: String
+    Description: Private Route Table ID from Template 1 (imported)
+  
+  EC2InstanceId:
+    Type: String
+    Description: EC2 Instance ID from Template 1 (imported)
+  
+  EC2SecurityGroupId:
+    Type: String
+    Description: EC2 Security Group ID from Template 1 (imported)
+  
+  InstancePort:
+    Type: Number
+    Default: 8000
+    Description: Port on which the EC2 instance listens (HTTP)
+  
+  PublicSubnetCIDR:
+    Type: String
+    Default: 172.31.59.0/24
+    Description: CIDR block for the public subnet (for NAT Gateway)
+  
+  CognitoUserPoolId:
+    Type: String
+    Description: Existing Cognito User Pool ID
+  
+  CognitoAppClientId:
+    Type: String
+    Description: Existing Cognito App Client ID
+  
+  DomainName:
+    Type: String
+    Default: ''
+    Description: Optional custom domain name for API Gateway
+    AllowedPattern: '^$|^[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9\-]{0,61}[a-z0-9])?)*$'
+
+Resources:
+  # Public Subnet for NAT Gateway
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPCId
+      CidrBlock: !Ref PublicSubnetCIDR
+      AvailabilityZone: !Select [0, !GetAZs '']
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub 'sn-pub-${AWS::StackName}'
+
+  # Elastic IP for NAT Gateway
+  NATGatewayEIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Sub 'eip-nat-${AWS::StackName}'
+
+  # NAT Gateway
+  NATGateway:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NATGatewayEIP.AllocationId
+      SubnetId: !Ref PublicSubnet
+      Tags:
+        - Key: Name
+          Value: !Sub 'nat-gw-${AWS::StackName}'
+
+  # Route Table for Public Subnet
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPCId
+      Tags:
+        - Key: Name
+          Value: !Sub 'rt-pub-${AWS::StackName}'
+
+  # Route to Internet Gateway
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGatewayId
+
+  # Associate Public Subnet with Public Route Table
+  PublicSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  # Add route to NAT Gateway in existing Private Route Table (created in Template 1)
+  PrivateRouteToNAT:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRouteTableId
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGateway
+
+  # Ensure Internet Gateway is attached to VPC
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGatewayId
+      VpcId: !Ref VPCId
+
+  # Security Group for Network Load Balancer
+  NLBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub 'sgr-nlb-${AWS::StackName}'
+      GroupDescription: Security group for Network Load Balancer
+      VpcId: !Ref VPCId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+          Description: Allow HTTPS traffic from internet
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+          Description: Allow HTTP traffic from internet
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: Allow all outbound traffic
+      Tags:
+        - Key: Name
+          Value: !Sub 'sgr-nlb-${AWS::StackName}'
+
+  # Update EC2 Security Group to allow traffic from NLB
+  EC2SecurityGroupIngressFromNLB:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties:
+      GroupId: !Ref EC2SecurityGroupId
+      IpProtocol: tcp
+      FromPort: !Ref InstancePort
+      ToPort: !Ref InstancePort
+      SourceSecurityGroupId: !Ref NLBSecurityGroup
+      Description: Allow traffic from Network Load Balancer
+
+  # Network Load Balancer
+  NetworkLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub 'nlb-${AWS::StackName}'
+      Type: network
+      Scheme: internal
+      Subnets:
+        - !Ref PrivateSubnetId
+      Tags:
+        - Key: Name
+          Value: !Sub 'nlb-${AWS::StackName}'
+
+  # Target Group for EC2 Instance
+  TargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub 'tg-${AWS::StackName}'
+      Port: !Ref InstancePort
+      Protocol: TCP
+      VpcId: !Ref VPCId
+      TargetType: instance
+      HealthCheckProtocol: HTTP
+      HealthCheckPort: !Ref InstancePort
+      HealthCheckPath: /health
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 3
+      Targets:
+        - Id: !Ref EC2InstanceId
+          Port: !Ref InstancePort
+
+  # NLB Listener
+  NLBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref TargetGroup
+      LoadBalancerArn: !Ref NetworkLoadBalancer
+      Port: 80
+      Protocol: TCP
+
+  # VPC Link for API Gateway
+  VPCLink:
+    Type: AWS::ApiGatewayV2::VpcLink
+    Properties:
+      Name: !Sub 'vpc-link-${AWS::StackName}'
+      SubnetIds:
+        - !Ref PrivateSubnetId
+      SecurityGroupIds:
+        - !Ref NLBSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub 'vpc-link-${AWS::StackName}'
+
+  # API Gateway HTTP API
+  ApiGateway:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub 'api-gw-${AWS::StackName}'
+      ProtocolType: HTTP
+      CorsConfiguration:
+        AllowOrigins:
+          - '*'
+        AllowMethods:
+          - GET
+          - POST
+          - OPTIONS
+        AllowHeaders:
+          - '*'
+        MaxAge: 300
+      Tags:
+        - Key: Name
+          Value: !Sub 'api-gw-${AWS::StackName}'
+
+  # API Gateway Stage
+  ApiGatewayStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref ApiGateway
+      StageName: $default
+      AutoDeploy: true
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 5000
+        ThrottlingRateLimit: 2000
+
+  # Integration for API Gateway to NLB
+  ApiGatewayIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref ApiGateway
+      IntegrationType: HTTP_PROXY
+      IntegrationUri: !Sub 'http://${NetworkLoadBalancer.DNSName}:80'
+      IntegrationMethod: ANY
+      ConnectionType: VPC_LINK
+      ConnectionId: !Ref VPCLink
+      PayloadFormatVersion: '1.0'
+
+  # Cognito Authorizer
+  CognitoAuthorizer:
+    Type: AWS::ApiGatewayV2::Authorizer
+    Properties:
+      ApiId: !Ref ApiGateway
+      AuthorizerType: JWT
+      IdentitySource:
+        - $request.header.Authorization
+      JwtConfiguration:
+        Audience:
+          - !Ref CognitoAppClientId
+        Issuer: !Sub 'https://cognito-idp.${AWSRegion}.amazonaws.com/${CognitoUserPoolId}'
+
+  # Route: GET /health
+  HealthRouteWithAuth:
+    Type: AWS::ApiGatewayV2::Route
+    DependsOn:
+      - CognitoAuthorizer
+      - ApiGatewayIntegration
+    Properties:
+      ApiId: !Ref ApiGateway
+      RouteKey: 'GET /health'
+      Target: !Sub 'integrations/${ApiGatewayIntegration}'
+      AuthorizationType: JWT
+      AuthorizerId: !Ref CognitoAuthorizer
+
+  InfoRouteWithAuth:
+    Type: AWS::ApiGatewayV2::Route
+    DependsOn:
+      - CognitoAuthorizer
+      - ApiGatewayIntegration
+    Properties:
+      ApiId: !Ref ApiGateway
+      RouteKey: 'GET /info'
+      Target: !Sub 'integrations/${ApiGatewayIntegration}'
+      AuthorizationType: JWT
+      AuthorizerId: !Ref CognitoAuthorizer
+
+  WeatherRouteWithAuth:
+    Type: AWS::ApiGatewayV2::Route
+    DependsOn:
+      - CognitoAuthorizer
+      - ApiGatewayIntegration
+    Properties:
+      ApiId: !Ref ApiGateway
+      RouteKey: 'GET /weather'
+      Target: !Sub 'integrations/${ApiGatewayIntegration}'
+      AuthorizationType: JWT
+      AuthorizerId: !Ref CognitoAuthorizer
+
+  CurrencyRouteWithAuth:
+    Type: AWS::ApiGatewayV2::Route
+    DependsOn:
+      - CognitoAuthorizer
+      - ApiGatewayIntegration
+    Properties:
+      ApiId: !Ref ApiGateway
+      RouteKey: 'GET /currency'
+      Target: !Sub 'integrations/${ApiGatewayIntegration}'
+      AuthorizationType: JWT
+      AuthorizerId: !Ref CognitoAuthorizer
+
+  MirrorRouteWithAuth:
+    Type: AWS::ApiGatewayV2::Route
+    DependsOn:
+      - CognitoAuthorizer
+      - ApiGatewayIntegration
+    Properties:
+      ApiId: !Ref ApiGateway
+      RouteKey: 'POST /mirror'
+      Target: !Sub 'integrations/${ApiGatewayIntegration}'
+      AuthorizationType: JWT
+      AuthorizerId: !Ref CognitoAuthorizer
+
+Outputs:
+  NATGatewayId:
+    Description: ID of the NAT Gateway
+    Value: !Ref NATGateway
+    Export:
+      Name: !Sub '${AWS::StackName}-NATGatewayId'
+  
+  NATGatewayEIP:
+    Description: Elastic IP address of the NAT Gateway
+    Value: !Ref NATGatewayEIP
+    Export:
+      Name: !Sub '${AWS::StackName}-NATGatewayEIP'
+  
+  PublicSubnetId:
+    Description: ID of the public subnet
+    Value: !Ref PublicSubnet
+    Export:
+      Name: !Sub '${AWS::StackName}-PublicSubnetId'
+  
+  NetworkLoadBalancerArn:
+    Description: ARN of the Network Load Balancer
+    Value: !Ref NetworkLoadBalancer
+    Export:
+      Name: !Sub '${AWS::StackName}-NetworkLoadBalancerArn'
+  
+  NetworkLoadBalancerDNS:
+    Description: DNS name of the Network Load Balancer
+    Value: !GetAtt NetworkLoadBalancer.DNSName
+    Export:
+      Name: !Sub '${AWS::StackName}-NetworkLoadBalancerDNS'
+  
+  TargetGroupArn:
+    Description: ARN of the Target Group
+    Value: !Ref TargetGroup
+    Export:
+      Name: !Sub '${AWS::StackName}-TargetGroupArn'
+  
+  VPCLinkId:
+    Description: ID of the VPC Link
+    Value: !Ref VPCLink
+    Export:
+      Name: !Sub '${AWS::StackName}-VPCLinkId'
+  
+  ApiGatewayId:
+    Description: ID of the API Gateway
+    Value: !Ref ApiGateway
+    Export:
+      Name: !Sub '${AWS::StackName}-ApiGatewayId'
+  
+  ApiGatewayEndpoint:
+    Description: API Gateway endpoint URL
+    Value: !Sub 'https://${ApiGateway}.execute-api.${AWSRegion}.amazonaws.com'
+    Export:
+      Name: !Sub '${AWS::StackName}-ApiGatewayEndpoint'
+  
+  ApiGatewayInvokeURL:
+    Description: API Gateway invoke URL
+    Value: !Sub 'https://${ApiGateway}.execute-api.${AWSRegion}.amazonaws.com/$default'
+    Export:
+      Name: !Sub '${AWS::StackName}-ApiGatewayInvokeURL'
