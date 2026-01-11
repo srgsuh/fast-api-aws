@@ -131,18 +131,9 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub 'ec2-${AWS::StackName}-app'
-      UserData:
-        Fn::Base64: |
-          #!/bin/bash
-          yum update -y
-          yum install -y docker
-          systemctl start docker
-          systemctl enable docker
-          # Add ec2-user and ssm-user to docker group for Docker access
-          usermod -a -G docker ec2-user
-          usermod -a -G docker ssm-user
-          # Note: Container deployment should be handled separately
-          # or via Systems Manager Run Command
+      # Note: Instance is in private subnet without internet access.
+      # Software installation (Docker, etc.) should be done via SSM Run Command
+      # after Template 2 adds NAT Gateway connectivity.
 
 Mappings:
   RegionMap:
