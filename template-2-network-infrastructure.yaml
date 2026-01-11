@@ -60,6 +60,11 @@ Parameters:
     Type: String
     Default: 2chpfairj5rakt9lffar3gnv3h
     Description: Existing Cognito App Client ID
+  
+  AuthLambdaArn:
+    Type: String
+    Default: arn:aws:lambda:il-central-1:773769103104:function:lambda-auth-il-central-1
+    Description: ARN of the Lambda function for authentication (auth/login and auth/refresh endpoints)
 
 Resources:
   # Public Subnet for NAT Gateway (created in same VPC within 172.31.0.0/16 range)
@@ -306,6 +311,43 @@ Resources:
       Target: !Sub 'integrations/${ApiGatewayIntegration}'
       AuthorizationType: JWT
       AuthorizerId: !Ref CognitoAuthorizer
+
+  # Lambda Integration for Auth Routes
+  AuthLambdaIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref ApiGateway
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !Ref AuthLambdaArn
+      IntegrationMethod: POST
+      PayloadFormatVersion: '2.0'
+
+  # Permission for API Gateway to invoke Auth Lambda
+  AuthLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref AuthLambdaArn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub 'arn:aws:execute-api:${AWSRegion}:${AWS::AccountId}:${ApiGateway}/*'
+
+  # Auth Login Route (No Authentication)
+  AuthLoginRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ApiGateway
+      RouteKey: 'POST /auth/login'
+      Target: !Sub 'integrations/${AuthLambdaIntegration}'
+      AuthorizationType: NONE
+
+  # Auth Refresh Route (No Authentication)
+  AuthRefreshRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref ApiGateway
+      RouteKey: 'POST /auth/refresh'
+      Target: !Sub 'integrations/${AuthLambdaIntegration}'
+      AuthorizationType: NONE
 
 Outputs:
   NATGatewayId:
