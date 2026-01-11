@@ -1,4 +1,3 @@
-AWSTemplateFormatVersion: '2010-09-09'
 Description: 'CloudFormation template for network infrastructure - NAT Gateway, NLB, API Gateway, VPC Link, and Cognito integration'
 
 Parameters:
@@ -50,10 +49,12 @@ Parameters:
   
   CognitoUserPoolId:
     Type: String
+    Default: il-central-1_0zf0LNlSD
     Description: Existing Cognito User Pool ID
   
   CognitoAppClientId:
     Type: String
+    Default: 2chpfairj5rakt9lffar3gnv3h
     Description: Existing Cognito App Client ID
 
 Resources:
@@ -98,9 +99,9 @@ Resources:
           Value: !Sub 'rt-pub-${AWS::StackName}'
 
   # Route to Internet Gateway
+  # Note: Internet Gateway is assumed to be already attached to the VPC
   PublicRoute:
     Type: AWS::EC2::Route
-    DependsOn: InternetGatewayAttachment
     Properties:
       RouteTableId: !Ref PublicRouteTable
       DestinationCidrBlock: 0.0.0.0/0
@@ -120,13 +121,6 @@ Resources:
       RouteTableId: !Ref PrivateRouteTableId
       DestinationCidrBlock: 0.0.0.0/0
       NatGatewayId: !Ref NATGateway
-
-  # Ensure Internet Gateway is attached to VPC
-  InternetGatewayAttachment:
-    Type: AWS::EC2::VPCGatewayAttachment
-    Properties:
-      InternetGatewayId: !Ref InternetGatewayId
-      VpcId: !Ref VPCId
 
   # Security Group for Network Load Balancer
   NLBSecurityGroup:
@@ -253,7 +247,7 @@ Resources:
     Properties:
       ApiId: !Ref ApiGateway
       IntegrationType: HTTP_PROXY
-      IntegrationUri: !Sub 'http://${NetworkLoadBalancer.DNSName}:80'
+      IntegrationUri: !Ref NLBListener
       IntegrationMethod: ANY
       ConnectionType: VPC_LINK
       ConnectionId: !Ref VPCLink
