@@ -18,22 +18,22 @@ Parameters:
   
   PrivateSubnetId:
     Type: String
-    Default: subnet-0fa8077fbbbb31770
+    Default: subnet-07f6e281bc2ffecc5
     Description: Private Subnet ID from Template 1 (imported)
   
   PrivateRouteTableId:
     Type: String
-    Default: rtb-0adf2f6966272c477
+    Default: rtb-0c14db1be6c75d9e4
     Description: Private Route Table ID from Template 1 (imported)
   
   EC2InstanceId:
     Type: String
-    Default: i-06c7921123e26bb47
+    Default: i-0808c0fbc00dbfe6e
     Description: EC2 Instance ID from Template 1 (imported)
   
   EC2SecurityGroupId:
     Type: String
-    Default: sg-0e8e645ba32b3d077
+    Default: sg-0fa531756ff4b2ccf
     Description: EC2 Security Group ID from Template 1 (imported)
   
   InstancePort:

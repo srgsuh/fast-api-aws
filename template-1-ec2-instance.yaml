@@ -34,6 +34,11 @@ Parameters:
     Type: Number
     Default: 8000
     Description: Port on which the instance will listen (HTTP)
+  
+  AMIId:
+    Type: AWS::EC2::Image::Id
+    Default: ami-04902cb1765364654
+    Description: Custom AMI ID for the EC2 instance
 
 Resources:
   # Private Subnet (created in same VPC as existing subnet within 172.31.0.0/16 range)
@@ -121,7 +126,7 @@ Resources:
   EC2Instance:
     Type: AWS::EC2::Instance
     Properties:
-      ImageId: !FindInMap [RegionMap, !Ref AWS::Region, AMI]
+      ImageId: !Ref AMIId
       InstanceType: !Ref InstanceType
       SubnetId: !Ref PrivateSubnet
       SecurityGroupIds:
@@ -134,18 +139,6 @@ Resources:
       # Note: Instance is in private subnet without internet access.
       # Software installation (Docker, etc.) should be done via SSM Run Command
       # after Template 2 adds NAT Gateway connectivity.
-
-Mappings:
-  RegionMap:
-    il-central-1:
-      # Amazon Linux 2023 kernel 6.1 AMI (64-bit x86, UEFI-preferred)
-      AMI: ami-0e233d6c0a45f64ec
-    eu-central-1:
-      # Amazon Linux 2023 kernel 6.1 AMI (64-bit x86, UEFI-preferred) - Frankfurt
-      AMI: ami-0387413ed05eb20af
-    us-east-1:
-      # Amazon Linux 2023 kernel 6.1 AMI (64-bit x86, UEFI-preferred)
-      AMI: ami-07ff62358b87c7116
 
 Outputs:
   PrivateSubnetId:
